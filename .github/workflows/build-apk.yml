@@ -1,0 +1,216 @@
+name: Build Movie App APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name (e.g. 1.0)'
+        required: false
+        type: string
+        default: ''
+      version_code:
+        description: 'Version code - must be a whole number bigger than last time'
+        required: false
+        type: string
+        default: ''
+      release_notes:
+        description: 'What changed in this version (shown in the store)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION_NAME: ${{ inputs.version_name || '1.0' }}
+      APP_VERSION_CODE: ${{ inputs.version_code || '1' }}
+      APP_RELEASE_NOTES: "${{ inputs.release_notes || 'Movie app: browse thousands of free legal movies with posters, details, trailers and in-app playback. Log into your Premiumize account to play your cloud files.' }}"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+          fi
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Verify index.html and scaffold Android project
+        run: |
+          test -f ./index.html || (echo "ERROR: index.html not found in repo root" && exit 1)
+          grep -q 'id="movie-app"' ./index.html || (echo "ERROR: guard id movie-app not found" && exit 1)
+          grep -q 'archive.org' ./index.html || (echo "ERROR: movie data source missing" && exit 1)
+
+          mkdir -p app/src/main/java/com/movieapp/app app/src/main/assets/www
+          cp ./index.html app/src/main/assets/www/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MovieApp"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.movieapp.app'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.movieapp.app'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode __APP_VERSION_CODE__
+                  versionName '__APP_VERSION_NAME__'
+              }
+          }
+          EOF
+          sed -i "s/__APP_VERSION_CODE__/$APP_VERSION_CODE/g; s/__APP_VERSION_NAME__/$APP_VERSION_NAME/g" app/build.gradle
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+              <uses-feature android:name="android.software.leanback" android:required="false"/>
+              <application android:label="Movies"
+                  android:theme="@android:style/Theme.Black.NoTitleBar"
+                  android:hardwareAccelerated="true">
+                  <activity android:name="com.movieapp.app.MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                          <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/movieapp/app/MainActivity.java <<'EOF'
+          package com.movieapp.app;
+          import android.app.Activity;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.webkit.CookieManager;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          public class MainActivity extends Activity {
+            private WebView w;
+            @Override protected void onCreate(Bundle s) {
+              super.onCreate(s);
+              w = new WebView(this);
+              WebSettings st = w.getSettings();
+              String ua = st.getUserAgentString();
+              if (ua != null) st.setUserAgentString(ua.replace("; wv", "").replace("Version/4.0 ", ""));
+              st.setJavaScriptEnabled(true);
+              st.setDomStorageEnabled(true);
+              st.setLoadWithOverviewMode(true);
+              st.setUseWideViewPort(true);
+              st.setMediaPlaybackRequiresUserGesture(false);
+              st.setAllowFileAccessFromFileURLs(true);
+              st.setAllowUniversalAccessFromFileURLs(true);
+              CookieManager cm = CookieManager.getInstance();
+              cm.setAcceptCookie(true);
+              if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(w, true);
+              w.setWebViewClient(new WebViewClient());
+              setContentView(w);
+              try {
+                java.io.InputStream is = getAssets().open("www/index.html");
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] tmp = new byte[8192];
+                int n;
+                while ((n = is.read(tmp)) != -1) bos.write(tmp, 0, n);
+                is.close();
+                w.loadDataWithBaseURL("https://movies.app/", bos.toString("UTF-8"), "text/html", "UTF-8", null);
+              } catch (Exception e) {
+                w.loadUrl("file:///android_asset/www/index.html");
+              }
+            }
+            @Override public void onBackPressed() {
+              if (w != null && w.canGoBack()) { w.goBack(); return; }
+              super.onBackPressed();
+            }
+          }
+          EOF
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build release APK (unsigned)
+        run: gradle :app:assembleRelease
+
+      - name: Check signing secrets
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ] || [ -z "${{ secrets.KEYSTORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ] || [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+            echo "ERROR: one or more signing secrets are missing in this repo."
+            echo "Add the same 4 secrets used by your other Lynxos apps (Settings > Secrets and variables > Actions): KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_PASSWORD, KEY_ALIAS, then re-run the workflow."
+            exit 1
+          fi
+
+      - name: Sign release APK with the Lynxos key
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/lynxos-release.p12
+          "$APKSIGNER" sign --ks /tmp/lynxos-release.p12 --ks-type PKCS12 \
+            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
+            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+            --out app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          rm -f /tmp/lynxos-release.p12
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk | head -3
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-app-apk
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish GitHub release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION_NAME }}+${{ env.APP_VERSION_CODE }}
+          name: v${{ env.APP_VERSION_NAME }}+${{ env.APP_VERSION_CODE }}
+          body: ${{ env.APP_RELEASE_NOTES }}
+          files: app/build/outputs/apk/release/app-release.apk
