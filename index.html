@@ -168,7 +168,7 @@ function nav(id,state){
 }
 /* ---------- free legal movies (Internet Archive) ---------- */
 function iaQuery(){
-  var base="collection:feature_films AND mediatype:movies";
+  var base="collection:(feature_films OR publicdomainmovies OR moviesandfilms) AND mediatype:movies";
   if(query) base+=" AND (title:("+query+") OR description:("+query+"))";
   return base;
 }
@@ -208,15 +208,30 @@ function loadMovies(reset){
     say("Could not load movies");
   });
 }
-function pickFile(files){
-  var mp4s=files.filter(function(f){
-    return f.name&&/\.mp4$/i.test(f.name)&&f.format==="MPEG4"&&f.size>1000000;
+function qualityLabel(f){
+  var h=parseInt(f.height,10);
+  if(h>=1080)return "1080p";
+  if(h>=720)return "720p";
+  if(h>=480)return "480p";
+  var fmt=String(f.format||"").toLowerCase();
+  if(fmt.indexOf("512kb")>=0)return "480p";
+  if(fmt.indexOf("h.264")>=0||fmt.indexOf("mpeg4")>=0)return "720p";
+  if(h>0)return "SD";
+  return "SD";
+}
+function videoSources(files){
+  var vids=files.filter(function(f){
+    return f.name&&/\.(mp4|m4v|webm)$/i.test(f.name)&&(f.size|0)>1000000;
   });
-  if(!mp4s.length) mp4s=files.filter(function(f){return f.name&&/\.mp4$/i.test(f.name)&&f.size>1000000;});
-  if(!mp4s.length) return null;
-  mp4s.sort(function(a,b){return (a.size|0)-(b.size|0);});
-  for(var i=0;i<mp4s.length;i++){if((mp4s[i].size|0)>50000000) return mp4s[i];}
-  return mp4s[mp4s.length-1];
+  var byLabel={};
+  vids.forEach(function(f){
+    var label=qualityLabel(f);
+    var cur=byLabel[label];
+    if(!cur||((f.size|0)>(cur.file.size|0)))byLabel[label]={file:f,label:label};
+  });
+  var order={"1080p":4,"720p":3,"480p":2,"SD":1};
+  return Object.keys(byLabel).map(function(k){return byLabel[k];})
+    .sort(function(a,b){return (order[b.label]||0)-(order[a.label]||0);});
 }
 function cleanDesc(d){
   if(!d) return "";
@@ -231,7 +246,8 @@ function openDetail(id,title){
   .then(function(j){
     var m=j.metadata||{};
     var files=j.files||[];
-    detailFile=pickFile(files);
+    var sources=videoSources(files);
+    detailFile=sources.length?sources[0].file:null;
     detailTitle=m.title||title;
     var year=m.year||"",rt=m.runtime||"",desc=cleanDesc(m.description);
     var poster=IA+"/services/img/"+encodeURIComponent(id);
@@ -239,18 +255,35 @@ function openDetail(id,title){
       "<h2>"+esc(detailTitle)+"</h2>"+
       '<div class="meta">'+esc(year)+(rt?" &bull; "+esc(rt):"")+"</div>"+
       '<div class="about"><h3>About</h3><p>'+esc(desc||"No description available.")+"</p></div>";
-    if(detailFile){
+    if(sources.length){
       h+='<button class="btn block" id="playbtn">&#9654; Play movie</button>';
+      if(sources.length>1){
+        h+='<div class="provhead">Quality</div><div class="crumb" id="qualityrow">';
+        sources.forEach(function(s,i){
+          h+='<button data-qi="'+i+'" aria-label="Play in '+esc(s.label)+' quality">'+esc(s.label)+"</button>";
+        });
+        h+="</div>";
+      }
     }else{
       h+='<div class="msg">No playable video file found for this title.</div>';
     }
     h+='<button class="btn secondary block" id="trailerbtn">Play trailer</button>';
     document.getElementById("detail").innerHTML=h;
+    function playSource(s){
+      var url=IA+"/download/"+encodeURIComponent(id)+"/"+encodeURIComponent(s.file.name);
+      playVideo(url,detailTitle+" ("+s.label+")");
+    }
     var pb=document.getElementById("playbtn");
-    if(pb) pb.addEventListener("click",function(){
-      var url=IA+"/download/"+encodeURIComponent(id)+"/"+encodeURIComponent(detailFile.name);
-      playVideo(url,detailTitle);
-    });
+    if(pb) pb.addEventListener("click",function(){playSource(sources[0]);});
+    var qrow=document.getElementById("qualityrow");
+    if(qrow){
+      var qb=qrow.querySelectorAll("button");
+      for(var qi=0;qi<qb.length;qi++){
+        (function(idx){
+          qb[idx].addEventListener("click",function(){playSource(sources[idx]);});
+        })(qi);
+      }
+    }
     document.getElementById("trailerbtn").addEventListener("click",function(){playTrailer(detailTitle,year);});
     nav("screen-detail",{screen:"detail",id:id,title:title});
     say(detailTitle+" loaded");
