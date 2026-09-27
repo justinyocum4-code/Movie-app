@@ -48,6 +48,9 @@ main{padding:12px;max-width:900px;margin:0 auto}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .loadmore{display:block;margin:16px auto}
 .empty{color:var(--muted);text-align:center;padding:30px 10px}
+.prov{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.prov span{background:#1c1c1c;border:1px solid var(--gold);color:var(--gold);border-radius:8px;padding:8px 10px;font-size:14px}
+.provhead{color:var(--gold);font-weight:bold;margin:12px 0 4px}
 </style>
 </head>
 <body id="movie-app">
@@ -56,6 +59,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
     <h1>Movies</h1>
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button role="tab" id="tab-movies" aria-selected="true" aria-controls="screen-movies">Movies</button>
+      <button role="tab" id="tab-discover" aria-selected="false" aria-controls="screen-discover">Discover</button>
       <button role="tab" id="tab-cloud" aria-selected="false" aria-controls="screen-cloud">My Cloud</button>
     </nav>
   </header>
@@ -93,6 +97,31 @@ main{padding:12px;max-width:900px;margin:0 auto}
         <div id="cloudmsg"></div>
       </div>
     </section>
+    <section id="screen-discover" role="tabpanel" aria-labelledby="tab-discover" hidden>
+      <div id="tmdb-login">
+        <div class="field">
+          <label for="tmdbkey">TMDB API key</label>
+          <input id="tmdbkey" type="password" placeholder="Paste your API key" autocomplete="off">
+        </div>
+        <p class="meta">Free at themoviedb.org: make an account, then find your API key under account Settings. It stays on this device only.</p>
+        <button class="btn block" id="tmdbconnect">Connect TMDB</button>
+        <div id="tmdbmsg"></div>
+      </div>
+      <div id="tmdb-browse" hidden>
+        <button class="btn secondary" id="tmdbdisconnect" style="margin-bottom:8px">Disconnect</button>
+        <div class="searchrow">
+          <input id="tmdbq" type="search" placeholder="Search all movies" aria-label="Search all movies">
+          <button class="btn" id="tmdbsearchbtn">Search</button>
+        </div>
+        <div id="tmdbgridmsg"></div>
+        <div class="grid" id="tmdbgrid"></div>
+        <button class="btn secondary loadmore" id="tmdbmorebtn" hidden>Load more</button>
+      </div>
+      <div id="tmdb-detail" hidden>
+        <button class="btn secondary" id="tmdbdback" style="margin-bottom:12px">&larr; Back</button>
+        <div id="tmdbdetailbody"></div>
+      </div>
+    </section>
   </main>
 
   <div id="player" hidden>
@@ -124,11 +153,12 @@ var page=1,query="",loading=false,totalPages=1;
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function show(id){
-  ["screen-movies","screen-detail","screen-cloud"].forEach(function(s){
+  ["screen-movies","screen-detail","screen-cloud","screen-discover"].forEach(function(s){
     document.getElementById(s).hidden=(s!==id);
   });
   document.getElementById("mainheader").style.display=(id==="screen-detail")?"none":"";
   document.getElementById("tab-movies").setAttribute("aria-selected",id==="screen-movies"?"true":"false");
+  document.getElementById("tab-discover").setAttribute("aria-selected",id==="screen-discover"?"true":"false");
   document.getElementById("tab-cloud").setAttribute("aria-selected",id==="screen-cloud"?"true":"false");
   window.scrollTo(0,0);
 }
@@ -263,6 +293,7 @@ window.addEventListener("popstate",function(e){
   var s=(e.state&&e.state.screen)||"movies";
   if(s==="detail"&&e.state.id){show("screen-detail");}
   else if(s==="cloud"){show("screen-cloud");}
+  else if(s==="discover"){show("screen-discover");}
   else{show("screen-movies");}
 });
 /* ---------- Premiumize (my cloud) ---------- */
@@ -369,8 +400,132 @@ document.getElementById("pmdisconnect").addEventListener("click",function(){
   document.getElementById("pmkey").value="";
   pmShowLogin();say("Premiumize disconnected");
 });
+/* ---------- TMDB discover (metadata + where to watch) ---------- */
+var TMDB="https://api.themoviedb.org/3",TMIMG="https://image.tmdb.org/t/p/w342";
+var TMDBKEY="tmdb_apikey";
+function tmdbKey(){try{return localStorage.getItem(TMDBKEY)||"";}catch(e){return "";}}
+function tmdbSave(k){try{localStorage.setItem(TMDBKEY,k);}catch(e){}}
+function tmdbClear(){try{localStorage.removeItem(TMDBKEY);}catch(e){}}
+function tmdbCall(path,params){
+  var u=TMDB+path+"?api_key="+encodeURIComponent(tmdbKey());
+  Object.keys(params||{}).forEach(function(k){u+="&"+encodeURIComponent(k)+"="+encodeURIComponent(params[k]);});
+  return fetch(u).then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json();})
+  .then(function(j){if(j.success===false)throw new Error(j.status_message||"request failed");return j;});
+}
+function tmdbShowLogin(){
+  document.getElementById("tmdb-login").hidden=false;
+  document.getElementById("tmdb-browse").hidden=true;
+  document.getElementById("tmdb-detail").hidden=true;
+}
+function tmdbShowBrowse(){
+  document.getElementById("tmdb-login").hidden=true;
+  document.getElementById("tmdb-browse").hidden=false;
+  document.getElementById("tmdb-detail").hidden=true;
+}
+var tmdbPage=1,tmdbQuery="",tmdbLoading=false,tmdbTotal=1,tmdbMode="trending";
+function tmdbCard(m){
+  var t=m.title||"Untitled",y=(m.release_date||"").slice(0,4),r=m.vote_average;
+  var b=document.createElement("button");
+  b.className="card";
+  b.setAttribute("aria-label","Movie: "+t+(y?", "+y:"")+(r?", rating "+r+" out of 10":""));
+  var img=m.poster_path?'<img class="poster" loading="lazy" src="'+TMIMG+m.poster_path+'" alt="" onerror="this.style.display=\'none\'">':'<div class="poster"></div>';
+  b.innerHTML=img+'<div class="t">'+esc(t)+'</div><div class="y">'+esc(y)+(r?" &bull; &#9733; "+esc(String(r)):"")+"</div>";
+  b.addEventListener("click",function(){openTmdbDetail(m.id,t);});
+  return b;
+}
+function loadTmdb(reset){
+  if(tmdbLoading)return;
+  var grid=document.getElementById("tmdbgrid");
+  if(reset){tmdbPage=1;grid.innerHTML="";}
+  tmdbLoading=true;say("Loading movies");
+  var p=tmdbMode==="search"
+    ?tmdbCall("/search/movie",{query:tmdbQuery,page:tmdbPage,include_adult:"false"})
+    :tmdbCall("/trending/movie/week",{page:tmdbPage});
+  p.then(function(j){
+    tmdbLoading=false;
+    var res=j.results||[];
+    tmdbTotal=j.total_pages||1;
+    if(!res.length&&tmdbPage===1){
+      document.getElementById("tmdbgridmsg").innerHTML='<div class="empty">No movies found. Try another search.</div>';
+      document.getElementById("tmdbmorebtn").hidden=true;say("No movies found");return;
+    }
+    document.getElementById("tmdbgridmsg").innerHTML="";
+    res.forEach(function(m){grid.appendChild(tmdbCard(m));});
+    document.getElementById("tmdbmorebtn").hidden=tmdbPage>=tmdbTotal;
+    say(res.length+" movies loaded");
+  }).catch(function(e){
+    tmdbLoading=false;
+    document.getElementById("tmdbgridmsg").innerHTML='<div class="msg">Could not load movies: '+esc(e.message)+
+      ". Check your API key and connection, then try again.</div>";
+    say("Could not load movies");
+  });
+}
+function tmdbProviders(w){
+  var us=w&&w.results&&w.results.US;
+  if(!us)return '<div class="msg">No streaming info for the US.</div>';
+  var groups=[["Stream","flatrate"],["Free","free"],["With ads","ads"],["Rent","rent"],["Buy","buy"]];
+  var h="";
+  groups.forEach(function(g){
+    var arr=us[g[1]]||[];
+    if(arr.length){
+      h+='<div class="provhead">'+g[0]+'</div><div class="prov">'+
+        arr.map(function(p){return "<span>"+esc(p.provider_name)+"</span>";}).join("")+"</div>";
+    }
+  });
+  return h||'<div class="msg">No streaming info for the US.</div>';
+}
+function openTmdbDetail(id,title){
+  say("Loading details for "+title);
+  tmdbCall("/movie/"+id,{}).then(function(m){
+    return tmdbCall("/movie/"+id+"/watch/providers",{}).then(function(w){return [m,w];});
+  }).then(function(pair){
+    var m=pair[0],w=pair[1];
+    var t=m.title||title,y=(m.release_date||"").slice(0,4),r=m.vote_average,desc=m.overview||"";
+    var h="";
+    if(m.poster_path)h+='<img class="detail-poster" src="'+TMIMG+m.poster_path+'" alt="Poster for '+esc(t)+'" onerror="this.style.display=\'none\'">';
+    h+="<h2>"+esc(t)+"</h2>"+
+      '<div class="meta">'+esc(y)+(r?" &bull; &#9733; "+esc(String(r))+"/10":"")+"</div>"+
+      '<div class="about"><h3>About</h3><p>'+esc(desc||"No description available.")+"</p></div>"+
+      '<div class="about"><h3>Where to watch</h3>'+tmdbProviders(w)+
+      '<p class="meta">Open the service above to watch. Playback is not built into this section.</p></div>';
+    document.getElementById("tmdbdetailbody").innerHTML=h;
+    document.getElementById("tmdb-browse").hidden=true;
+    document.getElementById("tmdb-detail").hidden=false;
+    say(t+" loaded");
+  }).catch(function(e){
+    document.getElementById("tmdbdetailbody").innerHTML='<div class="msg">Could not load details: '+esc(e.message)+"</div>";
+    document.getElementById("tmdb-browse").hidden=true;
+    document.getElementById("tmdb-detail").hidden=false;
+  });
+}
+document.getElementById("tmdbconnect").addEventListener("click",function(){
+  var k=document.getElementById("tmdbkey").value.trim();
+  if(!k){document.getElementById("tmdbmsg").innerHTML='<div class="msg">Paste your API key first.</div>';return;}
+  tmdbSave(k);tmdbShowBrowse();tmdbMode="trending";tmdbQuery="";
+  document.getElementById("tmdbq").value="";loadTmdb(true);
+});
+document.getElementById("tmdbdisconnect").addEventListener("click",function(){
+  tmdbClear();document.getElementById("tmdbkey").value="";
+  tmdbShowLogin();say("TMDB disconnected");
+});
+document.getElementById("tmdbsearchbtn").addEventListener("click",function(){
+  tmdbQuery=document.getElementById("tmdbq").value.trim();
+  tmdbMode=tmdbQuery?"search":"trending";loadTmdb(true);
+});
+document.getElementById("tmdbq").addEventListener("keydown",function(e){
+  if(e.key==="Enter"){tmdbQuery=document.getElementById("tmdbq").value.trim();tmdbMode=tmdbQuery?"search":"trending";loadTmdb(true);}
+});
+document.getElementById("tmdbmorebtn").addEventListener("click",function(){tmdbPage++;loadTmdb(false);});
+document.getElementById("tmdbdback").addEventListener("click",function(){tmdbShowBrowse();});
 /* ---------- tabs, search, init ---------- */
 document.getElementById("tab-movies").addEventListener("click",function(){nav("screen-movies",{screen:"movies"});});
+document.getElementById("tab-discover").addEventListener("click",function(){
+  nav("screen-discover",{screen:"discover"});
+  if(tmdbKey()){
+    tmdbShowBrowse();
+    if(!document.getElementById("tmdbgrid").children.length){tmdbMode="trending";tmdbQuery="";loadTmdb(true);}
+  }else tmdbShowLogin();
+});
 document.getElementById("tab-cloud").addEventListener("click",function(){
   nav("screen-cloud",{screen:"cloud"});
   if(pmKey()){pmShowFiles();if(!document.getElementById("filelist").children.length)listFolder(crumbs[crumbs.length-1].id);}
