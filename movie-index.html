@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Movies</title>
+<style>
+[hidden]{display:none!important}
+:root{--gold:#f5c518;--gold-dim:#b8940f;--bg:#000;--card:#141414;--txt:#fff;--muted:#aaa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Roboto,sans-serif;font-size:17px}
+header{position:sticky;top:0;z-index:20;background:#0a0a0a;border-bottom:2px solid var(--gold);padding:10px 12px}
+header h1{margin:0 0 8px;font-size:22px;color:var(--gold)}
+nav.tabs{display:flex;gap:8px}
+nav.tabs button{flex:1;padding:14px;font-size:18px;font-weight:bold;background:#1c1c1c;color:var(--txt);border:2px solid #333;border-radius:10px}
+nav.tabs button[aria-selected="true"]{background:var(--gold);color:#000;border-color:var(--gold)}
+main{padding:12px;max-width:900px;margin:0 auto}
+.searchrow{display:flex;gap:8px;margin-bottom:12px}
+.searchrow input{flex:1;padding:14px;font-size:17px;border-radius:10px;border:2px solid #333;background:#1c1c1c;color:#fff}
+.btn{background:var(--gold);color:#000;border:none;border-radius:10px;padding:14px 18px;font-size:17px;font-weight:bold;min-height:52px}
+.btn.secondary{background:#1c1c1c;color:var(--gold);border:2px solid var(--gold)}
+.btn.block{width:100%;margin-top:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;padding:0;text-align:left;color:var(--txt);width:100%}
+.card .poster{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;background:linear-gradient(135deg,#222,#000)}
+.card .t{padding:8px;font-size:14px;font-weight:bold;min-height:56px}
+.card .y{padding:0 8px 8px;font-size:13px;color:var(--muted)}
+.detail-poster{width:100%;max-width:280px;aspect-ratio:2/3;object-fit:cover;border-radius:10px;border:2px solid var(--gold);background:linear-gradient(135deg,#222,#000)}
+.detail h2{color:var(--gold);margin:12px 0 4px;font-size:24px}
+.meta{color:var(--muted);margin-bottom:10px}
+.about{background:var(--card);border:1px solid #2a2a2a;border-radius:10px;padding:12px;line-height:1.5}
+.about h3{margin:0 0 6px;color:var(--gold)}
+.msg{background:#1c1c1c;border:2px solid var(--gold);border-radius:10px;padding:14px;margin:12px 0}
+.field{margin:12px 0}
+.field label{display:block;margin-bottom:6px;font-weight:bold;color:var(--gold)}
+.field input{width:100%;padding:14px;font-size:17px;border-radius:10px;border:2px solid #333;background:#1c1c1c;color:#fff}
+.crumb{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.crumb button{background:#1c1c1c;color:var(--gold);border:1px solid var(--gold);border-radius:8px;padding:10px 12px;font-size:15px}
+.filelist{list-style:none;margin:0;padding:0}
+.filelist li{margin:8px 0}
+.filelist button{width:100%;text-align:left;background:var(--card);color:var(--txt);border:1px solid #2a2a2a;border-radius:10px;padding:14px;font-size:16px}
+.filelist button .dir{color:var(--gold);font-weight:bold}
+#player,#trailer{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
+#player video{flex:1;width:100%;background:#000}
+#trailer iframe{flex:1;width:100%;border:none}
+.topbar{display:flex;align-items:center;gap:10px;background:#0a0a0a;padding:10px 12px;border-bottom:2px solid var(--gold)}
+.topbar .title{flex:1;font-weight:bold;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.loadmore{display:block;margin:16px auto}
+.empty{color:var(--muted);text-align:center;padding:30px 10px}
+</style>
+</head>
+<body id="movie-app">
+<div id="app">
+  <header id="mainheader">
+    <h1>Movies</h1>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-movies" aria-selected="true" aria-controls="screen-movies">Movies</button>
+      <button role="tab" id="tab-cloud" aria-selected="false" aria-controls="screen-cloud">My Cloud</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="screen-movies" role="tabpanel" aria-labelledby="tab-movies">
+      <div class="searchrow">
+        <input id="q" type="search" placeholder="Search movies" aria-label="Search movies">
+        <button class="btn" id="searchbtn">Search</button>
+      </div>
+      <div id="gridmsg"></div>
+      <div class="grid" id="grid"></div>
+      <button class="btn secondary loadmore" id="morebtn" hidden>Load more</button>
+    </section>
+
+    <section id="screen-detail" role="tabpanel" hidden>
+      <button class="btn secondary" id="dback" style="margin-bottom:12px">&larr; Back</button>
+      <div id="detail"></div>
+    </section>
+
+    <section id="screen-cloud" role="tabpanel" aria-labelledby="tab-cloud" hidden>
+      <div id="pm-login">
+        <div class="field">
+          <label for="pmkey">Premiumize API key</label>
+          <input id="pmkey" type="password" placeholder="Paste your API key" autocomplete="off">
+        </div>
+        <p class="meta">Find it on the Premiumize website under Account settings. It stays on this device only.</p>
+        <button class="btn block" id="pmconnect">Connect Premiumize</button>
+        <div id="pmmsg"></div>
+      </div>
+      <div id="pm-files" hidden>
+        <button class="btn secondary" id="pmdisconnect" style="margin-bottom:8px">Disconnect</button>
+        <div class="crumb" id="crumb" aria-label="Folder path"></div>
+        <ul class="filelist" id="filelist"></ul>
+        <div id="cloudmsg"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="player" hidden>
+    <div class="topbar">
+      <button class="btn secondary" id="pclose">&larr; Back</button>
+      <div class="title" id="ptitle"></div>
+    </div>
+    <video id="vid" controls playsinline></video>
+  </div>
+
+  <div id="trailer" hidden>
+    <div class="topbar">
+      <button class="btn secondary" id="tclose">&larr; Back</button>
+      <div class="title" id="ttitle"></div>
+    </div>
+    <iframe id="tframe" title="Movie trailer" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+  </div>
+
+  <div id="live" class="sr" aria-live="polite"></div>
+</div>
+<script>
+"use strict";
+var IA="https://archive.org";
+var PM="https://www.premiumize.me/api";
+var grid=document.getElementById("grid"),gridmsg=document.getElementById("gridmsg"),
+    morebtn=document.getElementById("morebtn"),q=document.getElementById("q"),
+    live=document.getElementById("live");
+var page=1,query="",loading=false,totalPages=1;
+function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function show(id){
+  ["screen-movies","screen-detail","screen-cloud"].forEach(function(s){
+    document.getElementById(s).hidden=(s!==id);
+  });
+  document.getElementById("mainheader").style.display=(id==="screen-detail")?"none":"";
+  document.getElementById("tab-movies").setAttribute("aria-selected",id==="screen-movies"?"true":"false");
+  document.getElementById("tab-cloud").setAttribute("aria-selected",id==="screen-cloud"?"true":"false");
+  window.scrollTo(0,0);
+}
+function nav(id,state){
+  show(id);
+  try{history.pushState(state||{screen:id},"","#"+id);}catch(e){}
+}
+/* ---------- free legal movies (Internet Archive) ---------- */
+function iaQuery(){
+  var base="collection:feature_films AND mediatype:movies";
+  if(query) base+=" AND (title:("+query+") OR description:("+query+"))";
+  return base;
+}
+function loadMovies(reset){
+  if(loading) return;
+  if(reset){page=1;grid.innerHTML="";}
+  loading=true;
+  say("Loading movies");
+  var url=IA+"/advancedsearch.php?q="+encodeURIComponent(iaQuery())+
+    "&fl[]=identifier&fl[]=title&fl[]=year&fl[]=description"+
+    "&sort[]=downloads desc&rows=48&page="+page+"&output=json";
+  fetch(url).then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json();})
+  .then(function(j){
+    loading=false;
+    var docs=(j.response&&j.response.docs)||[];
+    var found=j.response?j.response.numFound:0;
+    totalPages=Math.max(1,Math.ceil(found/48));
+    if(!docs.length&&page===1){gridmsg.innerHTML='<div class="empty">No movies found. Try another search.</div>';morebtn.hidden=true;say("No movies found");return;}
+    gridmsg.innerHTML="";
+    docs.forEach(function(d){
+      var id=d.identifier,t=d.title||"Untitled",y=d.year||"";
+      var b=document.createElement("button");
+      b.className="card";
+      b.setAttribute("aria-label","Movie: "+t+(y?", "+y:""));
+      b.innerHTML='<img class="poster" loading="lazy" src="'+IA+"/services/img/"+encodeURIComponent(id)+
+        '" alt="" onerror="this.style.display=\'none\'">'+
+        '<div class="t">'+esc(t)+'</div><div class="y">'+esc(y)+"</div>";
+      b.addEventListener("click",function(){openDetail(id,t);});
+      grid.appendChild(b);
+    });
+    morebtn.hidden=page>=totalPages;
+    say(docs.length+" movies loaded");
+  })
+  .catch(function(e){
+    loading=false;
+    gridmsg.innerHTML='<div class="msg">Could not load movies: '+esc(e.message)+'. Check your connection and try again.</div>';
+    say("Could not load movies");
+  });
+}
+function pickFile(files){
+  var mp4s=files.filter(function(f){
+    return f.name&&/\.mp4$/i.test(f.name)&&f.format==="MPEG4"&&f.size>1000000;
+  });
+  if(!mp4s.length) mp4s=files.filter(function(f){return f.name&&/\.mp4$/i.test(f.name)&&f.size>1000000;});
+  if(!mp4s.length) return null;
+  mp4s.sort(function(a,b){return (a.size|0)-(b.size|0);});
+  for(var i=0;i<mp4s.length;i++){if((mp4s[i].size|0)>50000000) return mp4s[i];}
+  return mp4s[mp4s.length-1];
+}
+function cleanDesc(d){
+  if(!d) return "";
+  if(Object.prototype.toString.call(d)==="[object Array]") d=d.join("\n");
+  return String(d).replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
+}
+var detailFile=null,detailTitle="";
+function openDetail(id,title){
+  say("Loading details for "+title);
+  fetch(IA+"/metadata/"+encodeURIComponent(id))
+  .then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json();})
+  .then(function(j){
+    var m=j.metadata||{};
+    var files=j.files||[];
+    detailFile=pickFile(files);
+    detailTitle=m.title||title;
+    var year=m.year||"",rt=m.runtime||"",desc=cleanDesc(m.description);
+    var poster=IA+"/services/img/"+encodeURIComponent(id);
+    var h='<img class="detail-poster" src="'+poster+'" alt="Poster for '+esc(detailTitle)+'" onerror="this.style.display=\'none\'">'+
+      "<h2>"+esc(detailTitle)+"</h2>"+
+      '<div class="meta">'+esc(year)+(rt?" &bull; "+esc(rt):"")+"</div>"+
+      '<div class="about"><h3>About</h3><p>'+esc(desc||"No description available.")+"</p></div>";
+    if(detailFile){
+      h+='<button class="btn block" id="playbtn">&#9654; Play movie</button>';
+    }else{
+      h+='<div class="msg">No playable video file found for this title.</div>';
+    }
+    h+='<button class="btn secondary block" id="trailerbtn">Play trailer</button>';
+    document.getElementById("detail").innerHTML=h;
+    var pb=document.getElementById("playbtn");
+    if(pb) pb.addEventListener("click",function(){
+      var url=IA+"/download/"+encodeURIComponent(id)+"/"+encodeURIComponent(detailFile.name);
+      playVideo(url,detailTitle);
+    });
+    document.getElementById("trailerbtn").addEventListener("click",function(){playTrailer(detailTitle,year);});
+    nav("screen-detail",{screen:"detail",id:id,title:title});
+    say(detailTitle+" loaded");
+  })
+  .catch(function(e){
+    document.getElementById("detail").innerHTML='<div class="msg">Could not load details: '+esc(e.message)+"</div>";
+    nav("screen-detail",{screen:"detail",id:id,title:title});
+  });
+}
+/* ---------- playback ---------- */
+var vid=document.getElementById("vid");
+function playVideo(url,title){
+  document.getElementById("ptitle").textContent=title;
+  document.getElementById("player").hidden=false;
+  vid.src=url;vid.play().catch(function(){});
+  try{history.pushState({screen:"player"},"","#player");}catch(e){}
+  say("Playing "+title);
+}
+function closePlayer(){
+  vid.pause();vid.removeAttribute("src");vid.load();
+  document.getElementById("player").hidden=true;
+}
+function playTrailer(title,year){
+  var query2=encodeURIComponent(title+" "+(year||"")+" trailer");
+  document.getElementById("ttitle").textContent=title+" trailer";
+  document.getElementById("trailer").hidden=false;
+  document.getElementById("tframe").src="https://www.youtube.com/embed?listType=search&list="+query2;
+  try{history.pushState({screen:"trailer"},"","#trailer");}catch(e){}
+  say("Playing trailer for "+title);
+}
+function closeTrailer(){
+  document.getElementById("tframe").src="";
+  document.getElementById("trailer").hidden=true;
+}
+document.getElementById("pclose").addEventListener("click",function(){history.back();});
+document.getElementById("tclose").addEventListener("click",function(){history.back();});
+document.getElementById("dback").addEventListener("click",function(){history.back();});
+window.addEventListener("popstate",function(e){
+  closePlayer();closeTrailer();
+  var s=(e.state&&e.state.screen)||"movies";
+  if(s==="detail"&&e.state.id){show("screen-detail");}
+  else if(s==="cloud"){show("screen-cloud");}
+  else{show("screen-movies");}
+});
+/* ---------- Premiumize (my cloud) ---------- */
+var PMKEY="pm_apikey";
+function pmKey(){try{return localStorage.getItem(PMKEY)||"";}catch(e){return "";}}
+function pmSave(k){try{localStorage.setItem(PMKEY,k);}catch(e){}}
+function pmClear(){try{localStorage.removeItem(PMKEY);}catch(e){}}
+function pmCall(path,params){
+  var body=new URLSearchParams();body.append("apikey",pmKey());
+  Object.keys(params||{}).forEach(function(k){body.append(k,params[k]);});
+  return fetch(PM+path,{method:"POST",body:body}).then(function(r){
+    if(!r.ok) throw new Error("http "+r.status);return r.json();
+  }).then(function(j){
+    if(j.status!=="success") throw new Error(j.message||"request failed");
+    return j;
+  });
+}
+var crumbs=[{id:null,name:"My files"}];
+function pmShowLogin(){
+  document.getElementById("pm-login").hidden=false;
+  document.getElementById("pm-files").hidden=true;
+}
+function pmShowFiles(){
+  document.getElementById("pm-login").hidden=true;
+  document.getElementById("pm-files").hidden=false;
+}
+function pmConnect(silent){
+  var key=pmKey();
+  if(!key){if(!silent)pmShowLogin();return;}
+  document.getElementById("pmmsg").innerHTML="";
+  pmCall("/account/info").then(function(j){
+    crumbs=[{id:null,name:"My files"}];
+    pmShowFiles();listFolder(null);
+    say("Premiumize connected");
+  }).catch(function(e){
+    pmShowLogin();
+    document.getElementById("pmmsg").innerHTML='<div class="msg">Premiumize connection failed: '+esc(e.message)+
+      ". Check your API key and try again.</div>";
+    say("Premiumize connection failed");
+  });
+}
+function listFolder(id){
+  var cl=document.getElementById("filelist");
+  cl.innerHTML='<li class="empty">Loading...</li>';
+  document.getElementById("cloudmsg").innerHTML="";
+  var p=id?{id:id}:{};
+  pmCall("/folder/list",p).then(function(j){
+    renderCrumb();
+    cl.innerHTML="";
+    var items=j.content||[];
+    if(!items.length){cl.innerHTML='<li class="empty">This folder is empty.</li>';return;}
+    items.forEach(function(it){
+      var li=document.createElement("li");
+      var b=document.createElement("button");
+      if(it.type==="folder"){
+        b.innerHTML='<span class="dir">&#128193; '+esc(it.name)+"</span>";
+        b.setAttribute("aria-label","Open folder "+it.name);
+        b.addEventListener("click",function(){
+          crumbs.push({id:it.id,name:it.name});
+          try{history.pushState({screen:"cloud",folder:it.id},"","#cloud");}catch(e){}
+          listFolder(it.id);
+        });
+      }else{
+        var isVid=/\.(mp4|mkv|avi|mov|webm|m4v|ts)$/i.test(it.name||"");
+        b.innerHTML="&#127916; "+esc(it.name)+(it.size?" ("+esc(it.size)+")":"");
+        b.setAttribute("aria-label",(isVid?"Play ":"File ")+it.name);
+        if(isVid){
+          b.addEventListener("click",function(){
+            playVideo(it.stream_link||it.link,it.name);
+          });
+        }else{
+          b.disabled=true;b.style.opacity="0.6";
+        }
+      }
+      li.appendChild(b);cl.appendChild(li);
+    });
+    say(items.length+" items");
+  }).catch(function(e){
+    document.getElementById("cloudmsg").innerHTML='<div class="msg">Could not list folder: '+esc(e.message)+"</div>";
+    say("Could not list folder");
+  });
+}
+function renderCrumb(){
+  var c=document.getElementById("crumb");c.innerHTML="";
+  crumbs.forEach(function(cr,i){
+    var b=document.createElement("button");
+    b.textContent=cr.name;
+    b.setAttribute("aria-label","Go to "+cr.name);
+    b.addEventListener("click",function(){
+      crumbs=crumbs.slice(0,i+1);
+      try{history.pushState({screen:"cloud",folder:cr.id},"","#cloud");}catch(e){}
+      listFolder(cr.id);
+    });
+    c.appendChild(b);
+  });
+}
+document.getElementById("pmconnect").addEventListener("click",function(){
+  var k=document.getElementById("pmkey").value.trim();
+  if(!k){document.getElementById("pmmsg").innerHTML='<div class="msg">Paste your API key first.</div>';return;}
+  pmSave(k);pmConnect(false);
+});
+document.getElementById("pmdisconnect").addEventListener("click",function(){
+  pmClear();crumbs=[{id:null,name:"My files"}];
+  document.getElementById("pmkey").value="";
+  pmShowLogin();say("Premiumize disconnected");
+});
+/* ---------- tabs, search, init ---------- */
+document.getElementById("tab-movies").addEventListener("click",function(){nav("screen-movies",{screen:"movies"});});
+document.getElementById("tab-cloud").addEventListener("click",function(){
+  nav("screen-cloud",{screen:"cloud"});
+  if(pmKey()){pmShowFiles();if(!document.getElementById("filelist").children.length)listFolder(crumbs[crumbs.length-1].id);}
+  else pmShowLogin();
+});
+document.getElementById("searchbtn").addEventListener("click",function(){
+  query=q.value.trim();loadMovies(true);
+});
+q.addEventListener("keydown",function(e){if(e.key==="Enter"){query=q.value.trim();loadMovies(true);}});
+morebtn.addEventListener("click",function(){page++;loadMovies(false);});
+if(pmKey()){/* key remembered; shown when cloud tab opens */}
+loadMovies(true);
+</script>
+</body>
+</html>
