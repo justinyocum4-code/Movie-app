@@ -26,6 +26,9 @@ main{padding:12px;max-width:900px;margin:0 auto}
 .filelist{list-style:none;margin:0;padding:0}
 .filelist li{margin:8px 0}
 .filelist button{width:100%;text-align:left;background:var(--card);color:var(--txt);border:1px solid #2a2a2a;border-radius:10px;padding:14px;font-size:16px}
+.upitem{display:flex;gap:10px;align-items:center}
+.poster{width:64px;height:96px;object-fit:cover;border:1px solid #2a2a2a;border-radius:8px;background:#000;flex:none}
+.upbtns{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
 .filelist button .dir{color:var(--gold);font-weight:bold}
 #player{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
 #player video{flex:1;width:100%;background:#000}
@@ -76,7 +79,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
       <div id="cloudmsg"></div>
       <div class="tip">
         <h3>How it works</h3>
-        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads. Tap one to save it straight to your Premiumize cloud — Premiumize downloads it there, then it appears under My Cloud with playback. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
+        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads, with posters. Tap a title to play it instantly — no cloud save needed. Tap Save to cloud to have Premiumize download it, then it appears under My Cloud. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
       </div>
     </section>
   </main>
@@ -93,7 +96,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
 </div>
 <script>
 "use strict";
-/* Movies v1.6 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with one-tap save to cloud. */
+/* Movies v1.7 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, posters, and save to cloud. */
 var PM="https://www.premiumize.me/api";
 var live=document.getElementById("live");
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
@@ -264,6 +267,24 @@ function pickVideoFile(files){
   pool.sort(function(a,b){return (Number(a.size)||0)-(Number(b.size)||0);});
   return pool[0];
 }
+function playUpload(identifier,title,btn){
+  btn.disabled=true;
+  var orig=btn.innerHTML;
+  btn.innerHTML="Loading...";
+  say("Loading "+title);
+  fetch(IA+"/metadata/"+encodeURIComponent(identifier)).then(function(r){
+    if(!r.ok)throw new Error("http "+r.status);return r.json();
+  }).then(function(meta){
+    var f=pickVideoFile(meta.files);
+    if(!f)throw new Error("no playable file found");
+    var url=IA+"/download/"+encodeURIComponent(identifier)+"/"+encodeURIComponent(f.name);
+    btn.disabled=false;btn.innerHTML=orig;
+    playVideo(url,title);
+  }).catch(function(e){
+    btn.disabled=false;btn.innerHTML=orig;
+    say("Could not play "+title+": "+e.message);
+  });
+}
 function saveToCloud(identifier,title,btn){
   btn.disabled=true;
   var orig=btn.innerHTML;
@@ -296,11 +317,26 @@ function renderUploadList(ulId,msgId,docs,emptyText){
   docs.forEach(function(d){
     var title=d.title||d.identifier||"Untitled";
     var li=document.createElement("li");
-    var b=document.createElement("button");
-    b.innerHTML="&#127916; "+esc(title);
-    b.setAttribute("aria-label","Save "+title+" to my cloud");
-    b.addEventListener("click",function(){saveToCloud(d.identifier,title,b);});
-    li.appendChild(b);ul.appendChild(li);
+    li.className="upitem";
+    var img=document.createElement("img");
+    img.className="poster";
+    img.src=IA+"/services/img/"+encodeURIComponent(d.identifier);
+    img.alt=title+" poster";
+    img.loading="lazy";
+    img.onerror=function(){img.style.display="none";};
+    var wrap=document.createElement("div");
+    wrap.className="upbtns";
+    var p=document.createElement("button");
+    p.innerHTML="&#9654; "+esc(title);
+    p.setAttribute("aria-label","Play "+title);
+    p.addEventListener("click",function(){playUpload(d.identifier,title,p);});
+    var s=document.createElement("button");
+    s.innerHTML="&#128190; Save to cloud";
+    s.setAttribute("aria-label","Save "+title+" to my cloud");
+    s.addEventListener("click",function(){saveToCloud(d.identifier,title,s);});
+    wrap.appendChild(p);wrap.appendChild(s);
+    li.appendChild(img);li.appendChild(wrap);
+    ul.appendChild(li);
   });
   say(docs.length+" items listed");
 }
