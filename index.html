@@ -109,7 +109,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
 </div>
 <script>
 "use strict";
-/* Movies v1.8 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, posters, choose-player dialog, and save to cloud. */
+/* Movies v1.9 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, TMDB posters/details, choose-player dialog, and save to cloud. */
 var PM="https://www.premiumize.me/api";
 var live=document.getElementById("live");
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
@@ -318,7 +318,46 @@ function saveToCloud(identifier,title,btn){
     say("Could not save "+title+": "+e.message);
   });
 }
-function renderUploadList(ulId,msgId,docs,emptyText){
+/* ---------- TMDB posters + details ---------- */
+var TMDB_KEY="9cf3b5672ee6071450710f823c3e59fc";
+var tmdbQueue=[],tmdbBusy=false,tmdbDone=0,tmdbTotal=0;
+function tmdbEnrich(identifier,title,kind,apply){
+  if(!TMDB_KEY||!kind)return;
+  var ck="tmdb_"+kind+"_"+identifier;
+  try{
+    var c=localStorage.getItem(ck);
+    if(c){var o=JSON.parse(c);if(o&&o.d&&(Date.now()-o.t)<30*864e5){apply(o.d);return;}}
+  }catch(e){}
+  tmdbTotal++;
+  tmdbQueue.push({ck:ck,title:title,kind:kind,apply:apply});
+  tmdbPump();
+}
+function tmdbPump(){
+  if(tmdbBusy||!tmdbQueue.length)return;
+  tmdbBusy=true;
+  var job=tmdbQueue.shift();
+  var url="https://api.themoviedb.org/3/search/"+job.kind+"?api_key="+TMDB_KEY+"&include_adult=false&query="+encodeURIComponent(job.title);
+  fetch(url).then(function(r){
+    if(!r.ok)throw new Error("tmdb "+r.status);return r.json();
+  }).then(function(d){
+    var it=(d.results&&d.results[0])||null;
+    var info=null;
+    if(it){
+      info={
+        poster:it.poster_path?("https://image.tmdb.org/t/p/w185"+it.poster_path):null,
+        year:String(it.release_date||it.first_air_date||"").slice(0,4),
+        overview:it.overview||""
+      };
+      try{localStorage.setItem(job.ck,JSON.stringify({t:Date.now(),d:info}));}catch(e){}
+    }
+    job.apply(info);
+  }).catch(function(){job.apply(null);}).then(function(){
+    tmdbDone++;
+    if(tmdbDone>=tmdbTotal&&tmdbTotal>0)say("Movie and show details finished loading.");
+    setTimeout(function(){tmdbBusy=false;tmdbPump();},350);
+  });
+}
+function renderUploadList(ulId,msgId,docs,emptyText,kind){
   var ul=document.getElementById(ulId);
   ul.innerHTML="";
   var msgEl=document.getElementById(msgId);
@@ -349,6 +388,20 @@ function renderUploadList(ulId,msgId,docs,emptyText){
     s.addEventListener("click",function(){saveToCloud(d.identifier,title,s);});
     wrap.appendChild(p);wrap.appendChild(s);
     li.appendChild(img);li.appendChild(wrap);
+    tmdbEnrich(d.identifier,title,kind,function(info){
+      if(!info)return;
+      if(info.poster)img.src=info.poster;
+      if(info.year){
+        p.innerHTML="&#9654; "+esc(title)+" ("+esc(info.year)+")";
+        p.setAttribute("aria-label","Play "+title+", released "+info.year);
+      }
+      if(info.overview){
+        var od=document.createElement("div");
+        od.className="meta";
+        od.textContent=info.overview.length>220?info.overview.slice(0,220)+"…":info.overview;
+        wrap.insertBefore(od,s);
+      }
+    });
     ul.appendChild(li);
   });
   say(docs.length+" items listed");
@@ -363,7 +416,7 @@ function loadNewUploads(){
   fetch(iaQueryURL("feature_films")).then(function(r){
     if(!r.ok)throw new Error("http "+r.status);return r.json();
   }).then(function(j){
-    renderUploadList("newmovies","newmoviesmsg",(j.response&&j.response.docs)||[],"No new movies found.");
+    renderUploadList("newmovies","newmoviesmsg",(j.response&&j.response.docs)||[],"No new movies found.","movie");
   }).catch(function(e){
     document.getElementById("newmovies").innerHTML="";
     document.getElementById("newmoviesmsg").innerHTML='<div class="msg">Could not load new movies: '+esc(e.message)+"</div>";
@@ -372,7 +425,7 @@ function loadNewUploads(){
   fetch(iaQueryURL("classic_tv")).then(function(r){
     if(!r.ok)throw new Error("http "+r.status);return r.json();
   }).then(function(j){
-    renderUploadList("newtv","newtvmsg",(j.response&&j.response.docs)||[],"No new TV shows found.");
+    renderUploadList("newtv","newtvmsg",(j.response&&j.response.docs)||[],"No new TV shows found.","tv");
   }).catch(function(e){
     document.getElementById("newtv").innerHTML="";
     document.getElementById("newtvmsg").innerHTML='<div class="msg">Could not load new TV shows: '+esc(e.message)+"</div>";
