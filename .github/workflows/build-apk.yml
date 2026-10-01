@@ -125,14 +125,31 @@ jobs:
           cat > app/src/main/java/com/movieapp/app/MainActivity.java <<'EOF'
           package com.movieapp.app;
           import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
           import android.webkit.CookieManager;
+          import android.webkit.JavascriptInterface;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Toast;
           public class MainActivity extends Activity {
             private WebView w;
+            public class VideoBridge {
+              @JavascriptInterface
+              public void openExternal(String url) {
+                try {
+                  Intent i = new Intent(Intent.ACTION_VIEW);
+                  i.setDataAndType(Uri.parse(url), "video/*");
+                  i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                  startActivity(Intent.createChooser(i, "Play video with"));
+                } catch (Exception e) {
+                  Toast.makeText(MainActivity.this, "No video player app found", Toast.LENGTH_LONG).show();
+                }
+              }
+            }
             @Override protected void onCreate(Bundle s) {
               super.onCreate(s);
               w = new WebView(this);
@@ -144,6 +161,7 @@ jobs:
               st.setLoadWithOverviewMode(true);
               st.setUseWideViewPort(true);
               st.setMediaPlaybackRequiresUserGesture(false);
+              w.addJavascriptInterface(new VideoBridge(), "Android");
               st.setAllowFileAccessFromFileURLs(true);
               st.setAllowUniversalAccessFromFileURLs(true);
               CookieManager cm = CookieManager.getInstance();
