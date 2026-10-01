@@ -29,6 +29,10 @@ main{padding:12px;max-width:900px;margin:0 auto}
 .upitem{display:flex;gap:10px;align-items:center}
 .poster{width:64px;height:96px;object-fit:cover;border:1px solid #2a2a2a;border-radius:8px;background:#000;flex:none}
 .upbtns{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+#pcdialog{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:60}
+#pcdialog[hidden]{display:none}
+.pcbox{background:#141414;border:1px solid #8a6d1c;border-radius:12px;padding:20px;width:min(92vw,380px);display:flex;flex-direction:column;gap:10px}
+.pctitle{color:var(--gold);font-size:18px;font-weight:bold}
 .filelist button .dir{color:var(--gold);font-weight:bold}
 #player{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
 #player video{flex:1;width:100%;background:#000}
@@ -79,7 +83,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
       <div id="cloudmsg"></div>
       <div class="tip">
         <h3>How it works</h3>
-        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads, with posters. Tap a title to play it instantly — no cloud save needed. Tap Save to cloud to have Premiumize download it, then it appears under My Cloud. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
+        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads, with posters. Tap a title, then choose Play in this app or open it in another player app on your phone. Tap Save to cloud to have Premiumize download it, then it appears under My Cloud. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
       </div>
     </section>
   </main>
@@ -92,11 +96,20 @@ main{padding:12px;max-width:900px;margin:0 auto}
     <video id="vid" controls playsinline></video>
   </div>
 
+  <div id="pcdialog" hidden role="dialog" aria-modal="true" aria-labelledby="pc-title">
+    <div class="pcbox">
+      <div class="pctitle" id="pc-title"></div>
+      <button class="btn" id="pc-here">&#9654; Play in this app</button>
+      <button class="btn secondary" id="pc-external">&#8599; Choose another player app</button>
+      <button class="btn secondary" id="pc-cancel">Cancel</button>
+    </div>
+  </div>
+
   <div id="live" class="sr" aria-live="polite"></div>
 </div>
 <script>
 "use strict";
-/* Movies v1.7 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, posters, and save to cloud. */
+/* Movies v1.8 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, posters, choose-player dialog, and save to cloud. */
 var PM="https://www.premiumize.me/api";
 var live=document.getElementById("live");
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
@@ -368,13 +381,35 @@ function loadNewUploads(){
 }
 /* ---------- playback ---------- */
 var vid=document.getElementById("vid");
+var pendingPlay=null;
 function playVideo(url,title){
+  pendingPlay={url:url,title:title};
+  document.getElementById("pc-title").textContent=title;
+  var hasBridge=(typeof Android!=="undefined"&&Android&&typeof Android.openExternal==="function");
+  document.getElementById("pc-external").style.display=hasBridge?"":"none";
+  document.getElementById("pcdialog").hidden=false;
+  say("Choose how to play "+title+". Play in this app, or choose another player app.");
+  document.getElementById("pc-here").focus();
+}
+function pcHide(){document.getElementById("pcdialog").hidden=true;}
+function playInline(url,title){
   document.getElementById("ptitle").textContent=title;
   document.getElementById("player").hidden=false;
   vid.src=url;vid.play().catch(function(){});
   try{history.pushState({screen:"player"},"","#player");}catch(e){}
   say("Playing "+title);
 }
+document.getElementById("pc-here").addEventListener("click",function(){
+  pcHide();
+  if(pendingPlay)playInline(pendingPlay.url,pendingPlay.title);
+});
+document.getElementById("pc-external").addEventListener("click",function(){
+  pcHide();
+  if(!pendingPlay)return;
+  say("Opening "+pendingPlay.title+" in another player. Pick your player app.");
+  try{Android.openExternal(pendingPlay.url);}catch(e){say("Could not open another player.");}
+});
+document.getElementById("pc-cancel").addEventListener("click",function(){pcHide();say("Cancelled");});
 function closePlayer(){
   vid.pause();vid.removeAttribute("src");vid.load();
   document.getElementById("player").hidden=true;
