@@ -28,6 +28,16 @@ main{padding:12px;max-width:900px;margin:0 auto}
 .filelist button{width:100%;text-align:left;background:var(--card);color:var(--txt);border:1px solid #2a2a2a;border-radius:10px;padding:14px;font-size:16px}
 .upitem{display:flex;gap:10px;align-items:center}
 .poster{width:64px;height:96px;object-fit:cover;border:1px solid #2a2a2a;border-radius:8px;background:#000;flex:none}
+.cardbtn{display:flex;gap:10px;align-items:center;width:100%;background:#111;border:1px solid #b8860b;border-radius:10px;padding:8px;color:#ffd75e;font-size:16px;text-align:left;margin:0 0 10px;cursor:pointer}
+.cardbtn .ct{flex:1}
+.bigposter{width:180px;max-width:60%;border-radius:10px;border:1px solid #b8860b;background:#000}
+.seasonrow{display:flex;gap:10px;overflow-x:auto;padding:6px 0}
+.seasonbtn{background:#111;border:1px solid #b8860b;border-radius:10px;padding:6px;color:#ffd75e;flex:none;width:112px;cursor:pointer;font-size:14px}
+.seasonbtn img{width:96px;height:144px;object-fit:cover;border-radius:6px;background:#000}
+.epitem{display:flex;gap:10px;align-items:center;background:#111;border:1px solid #b8860b;border-radius:10px;padding:8px;margin:0 0 10px}
+.epitem img{width:112px;height:63px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+.epitem .et{flex:1;font-size:14px}
+.epplay{flex:none;font-size:18px}
 .upbtns{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
 #pcdialog{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:60}
 #pcdialog[hidden]{display:none}
@@ -64,6 +74,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
     </section>
 
     <section id="pm-files" hidden>
+      <div id="browseview">
       <div class="btnrow">
         <button class="btn secondary" id="pmrefresh">&#8635; Refresh</button>
         <button class="btn secondary" id="pmdisconnect">Disconnect</button>
@@ -83,7 +94,18 @@ main{padding:12px;max-width:900px;margin:0 auto}
       <div id="cloudmsg"></div>
       <div class="tip">
         <h3>How it works</h3>
-        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads, with posters. Tap a title, then choose Play in this app or open it in another player app on your phone. Tap Save to cloud to have Premiumize download it, then it appears under My Cloud. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
+        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads, with posters. Tap a poster to open its details page: movies show the full description with Play and Save to cloud; TV shows show season posters — tap a season to browse its episodes, then tap Play on any episode to stream it. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
+      </div>
+      </div><!-- /browseview -->
+      <div id="detailview" hidden>
+        <button class="btn secondary" id="dback">&larr; Back to browsing</button>
+        <div id="dcontent"></div>
+      </div>
+      <div id="epview" hidden>
+        <button class="btn secondary" id="eback">&larr; Back</button>
+        <h2 class="sech" id="eptitle">Episodes</h2>
+        <ul class="filelist" id="eplist"></ul>
+        <div id="epmsg"></div>
       </div>
     </section>
   </main>
@@ -109,7 +131,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
 </div>
 <script>
 "use strict";
-/* Movies v1.9 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with tap-to-play, TMDB posters/details, choose-player dialog, and save to cloud. */
+/* Movies v2.0 — Premiumize only. Poster browse, movie/TV detail pages, TMDB season posters, episode lists with playable-copy search, choose-player dialog, save to cloud. */
 var PM="https://www.premiumize.me/api";
 var live=document.getElementById("live");
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
@@ -321,7 +343,7 @@ function saveToCloud(identifier,title,btn){
 /* ---------- TMDB posters + details ---------- */
 var TMDB_KEY="9cf3b5672ee6071450710f823c3e59fc";
 var tmdbQueue=[],tmdbBusy=false,tmdbDone=0,tmdbTotal=0;
-function tmdbEnrich(identifier,title,kind,apply){
+function tmdbEnrich(identifier,queryTitle,kind,apply){
   if(!TMDB_KEY||!kind)return;
   var ck="tmdb_"+kind+"_"+identifier;
   try{
@@ -329,7 +351,7 @@ function tmdbEnrich(identifier,title,kind,apply){
     if(c){var o=JSON.parse(c);if(o&&o.d&&(Date.now()-o.t)<30*864e5){apply(o.d);return;}}
   }catch(e){}
   tmdbTotal++;
-  tmdbQueue.push({ck:ck,title:title,kind:kind,apply:apply});
+  tmdbQueue.push({ck:ck,title:queryTitle,kind:kind,apply:apply});
   tmdbPump();
 }
 function tmdbPump(){
@@ -369,42 +391,250 @@ function renderUploadList(ulId,msgId,docs,emptyText,kind){
   docs.forEach(function(d){
     var title=d.title||d.identifier||"Untitled";
     var li=document.createElement("li");
-    li.className="upitem";
+    var card=document.createElement("button");
+    card.className="cardbtn";
+    card.setAttribute("aria-label",(kind==="movie"?"Movie: ":"TV show: ")+title+". Open details.");
     var img=document.createElement("img");
     img.className="poster";
     img.src=IA+"/services/img/"+encodeURIComponent(d.identifier);
-    img.alt=title+" poster";
+    img.alt="";
     img.loading="lazy";
     img.onerror=function(){img.style.display="none";};
-    var wrap=document.createElement("div");
-    wrap.className="upbtns";
-    var p=document.createElement("button");
-    p.innerHTML="&#9654; "+esc(title);
-    p.setAttribute("aria-label","Play "+title);
-    p.addEventListener("click",function(){playUpload(d.identifier,title,p);});
-    var s=document.createElement("button");
-    s.innerHTML="&#128190; Save to cloud";
-    s.setAttribute("aria-label","Save "+title+" to my cloud");
-    s.addEventListener("click",function(){saveToCloud(d.identifier,title,s);});
-    wrap.appendChild(p);wrap.appendChild(s);
-    li.appendChild(img);li.appendChild(wrap);
-    tmdbEnrich(d.identifier,title,kind,function(info){
+    var ct=document.createElement("span");
+    ct.className="ct";
+    ct.textContent=title;
+    card.appendChild(img);card.appendChild(ct);
+    card.addEventListener("click",function(){
+      if(kind==="movie")openMovieDetail(d.identifier,title);
+      else openTvDetail(d.identifier,title);
+    });
+    li.appendChild(card);
+    ul.appendChild(li);
+    var q=kind==="tv"?(guessSeriesName(d.identifier,title)||title):title;
+    tmdbEnrich(d.identifier,q,kind,function(info){
+      card._tmdb=info||null;
       if(!info)return;
       if(info.poster)img.src=info.poster;
-      if(info.year){
-        p.innerHTML="&#9654; "+esc(title)+" ("+esc(info.year)+")";
-        p.setAttribute("aria-label","Play "+title+", released "+info.year);
-      }
-      if(info.overview){
-        var od=document.createElement("div");
-        od.className="meta";
-        od.textContent=info.overview.length>220?info.overview.slice(0,220)+"…":info.overview;
-        wrap.insertBefore(od,s);
-      }
+      if(info.year)ct.textContent=title+" ("+info.year+")";
     });
-    ul.appendChild(li);
   });
   say(docs.length+" items listed");
+}
+/* ---------- Detail / seasons / episodes views ---------- */
+function showView(which){
+  ["browseview","detailview","epview"].forEach(function(v){
+    document.getElementById(v).hidden=(v!==which);
+  });
+  window.scrollTo(0,0);
+  say({browseview:"Browsing",detailview:"Details",epview:"Episodes"}[which]||"");
+}
+document.getElementById("dback").addEventListener("click",function(){showView("browseview");});
+document.getElementById("eback").addEventListener("click",function(){showView("detailview");});
+function detailButtons(dc,identifier,title,playLabel){
+  var row=document.createElement("div");row.className="btnrow";
+  var play=document.createElement("button");play.className="btn";play.innerHTML="&#9654; "+esc(playLabel);
+  play.setAttribute("aria-label",playLabel+": "+title);
+  play.addEventListener("click",function(){playUpload(identifier,title,play);});
+  var sv=document.createElement("button");sv.className="btn secondary";sv.innerHTML="&#128190; Save to cloud";
+  sv.setAttribute("aria-label","Save "+title+" to my cloud");
+  sv.addEventListener("click",function(){saveToCloud(identifier,title,sv);});
+  row.appendChild(play);row.appendChild(sv);dc.appendChild(row);
+}
+function openMovieDetail(identifier,title){
+  var dc=document.getElementById("dcontent");
+  dc.innerHTML='<div class="msg">Loading details…</div>';
+  showView("detailview");
+  say("Loading details for "+title);
+  tmdbEnrich(identifier,title,"movie",function(info){
+    dc.innerHTML="";
+    var poster=info&&info.poster?info.poster:IA+"/services/img/"+encodeURIComponent(identifier);
+    var year=info&&info.year?info.year:"";
+    var ov=info&&info.overview?info.overview:"";
+    var img=document.createElement("img");
+    img.className="bigposter";img.src=poster;img.alt=title+" poster";
+    img.onerror=function(){img.style.display="none";};
+    var h=document.createElement("h2");h.className="sech";h.textContent=title+(year?" ("+year+")":"");
+    dc.appendChild(img);dc.appendChild(h);
+    if(ov){var p=document.createElement("p");p.className="meta";p.textContent=ov;dc.appendChild(p);}
+    detailButtons(dc,identifier,title,"Play");
+    say(title+(year?", released "+year:"")+". Details loaded.");
+  });
+}
+function guessSeriesName(identifier,title){
+  var t=String(title||"");
+  t=t.replace(/\s*\(\d{4}\)\s*s\d+\s*e\d+.*$/i,"");
+  t=t.replace(/\s*s\d+\s*e\d+.*$/i,"");
+  t=t.replace(/\s*-\s*Misc episode \d+.*$/i,"");
+  t=t.replace(/\s*-\s*\d{1,2}\s+\w+\s+\d{4}.*$/,"");
+  t=t.replace(/\s*-\s*\d{4}-\d{2}-\d{2}.*$/,"");
+  t=t.replace(/^s\d+e\d+[_\s]+/i,"");
+  t=t.replace(/_/g," ").replace(/\s+/g," ").trim();
+  return t||null;
+}
+function iaSeriesName(identifier,cb){
+  fetch(IA+"/metadata/"+encodeURIComponent(identifier)).then(function(r){
+    if(!r.ok)throw new Error("ia "+r.status);return r.json();
+  }).then(function(d){
+    var m=d.metadata||{},name=null;
+    var subj=m.subject;
+    if(subj){
+      var parts=String(Array.isArray(subj)?subj.join(";"):subj).split(";");
+      var generic=/^(classic tv|television|kinescope|variety show|\d{4}s?|tv|video)$/i;
+      for(var i=parts.length-1;i>=0;i--){
+        var p=parts[i].trim();
+        if(p&&!generic.test(p)){name=p;break;}
+      }
+    }
+    if(!name&&m.description)name=String(m.description).replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().split(".")[0];
+    cb(name||null);
+  }).catch(function(){cb(null);});
+}
+function openTvDetail(identifier,title){
+  var dc=document.getElementById("dcontent");
+  dc.innerHTML='<div class="msg">Loading details…</div>';
+  showView("detailview");
+  say("Loading details for "+title);
+  var done=function(seriesName){
+    if(!seriesName){renderTvFallback(identifier,title);return;}
+    var ck="series_"+seriesName.toLowerCase();
+    var cached=null;
+    try{var c=localStorage.getItem(ck);if(c){var o=JSON.parse(c);if(o&&(Date.now()-o.t)<30*864e5)cached=o.d;}}catch(e){}
+    if(cached){renderSeriesDetail(identifier,title,cached);return;}
+    say("Looking up the series guide for "+seriesName);
+    fetch("https://api.themoviedb.org/3/search/tv?api_key="+TMDB_KEY+"&include_adult=false&query="+encodeURIComponent(seriesName)).then(function(r){
+      if(!r.ok)throw new Error("tmdb "+r.status);return r.json();
+    }).then(function(d){
+      var s=(d.results&&d.results[0])||null;
+      if(!s){renderTvFallback(identifier,title);return;}
+      return fetch("https://api.themoviedb.org/3/tv/"+s.id+"?api_key="+TMDB_KEY).then(function(r2){
+        if(!r2.ok)throw new Error("tmdb "+r2.status);return r2.json();
+      }).then(function(full){
+        var bundle={id:s.id,name:s.name,overview:s.overview||"",
+          year:String(s.first_air_date||"").slice(0,4),
+          poster:s.poster_path?("https://image.tmdb.org/t/p/w342"+s.poster_path):null,
+          seasons:(full.seasons||[]).filter(function(x){return x.episode_count>0;}).map(function(x){
+            return {n:x.season_number,count:x.episode_count,
+              poster:x.poster_path?("https://image.tmdb.org/t/p/w185"+x.poster_path):null};
+          })};
+        try{localStorage.setItem(ck,JSON.stringify({t:Date.now(),d:bundle}));}catch(e){}
+        renderSeriesDetail(identifier,title,bundle);
+      });
+    }).catch(function(){renderTvFallback(identifier,title);});
+  };
+  var g=guessSeriesName(identifier,title);
+  if(g)done(g);else iaSeriesName(identifier,done);
+}
+function renderSeriesDetail(identifier,title,b){
+  var dc=document.getElementById("dcontent");
+  dc.innerHTML="";
+  var img=document.createElement("img");
+  img.className="bigposter";
+  img.src=b.poster||(IA+"/services/img/"+encodeURIComponent(identifier));
+  img.alt=b.name+" poster";
+  img.onerror=function(){img.style.display="none";};
+  var h=document.createElement("h2");h.className="sech";h.textContent=b.name+(b.year?" ("+b.year+")":"");
+  dc.appendChild(img);dc.appendChild(h);
+  if(b.overview){var p=document.createElement("p");p.className="meta";p.textContent=b.overview;dc.appendChild(p);}
+  detailButtons(dc,identifier,title,"Play this upload");
+  if(b.seasons.length){
+    var sh=document.createElement("h2");sh.className="sech";sh.textContent="Seasons";
+    dc.appendChild(sh);
+    var sr=document.createElement("div");sr.className="seasonrow";
+    b.seasons.forEach(function(sn){
+      var lbl=sn.n===0?"Specials":"Season "+sn.n;
+      var sb=document.createElement("button");sb.className="seasonbtn";
+      sb.setAttribute("aria-label",lbl+", "+sn.count+" episodes. Show episodes.");
+      if(sn.poster){var si=document.createElement("img");si.src=sn.poster;si.alt="";si.loading="lazy";
+        si.onerror=function(){si.style.display="none";};sb.appendChild(si);}
+      var sl=document.createElement("div");sl.textContent=lbl+" ("+sn.count+")";
+      sb.appendChild(sl);
+      sb.addEventListener("click",function(){openSeason(b,sn);});
+      sr.appendChild(sb);
+    });
+    dc.appendChild(sr);
+  }
+  say(b.name+(b.year?", first aired "+b.year:"")+". Details loaded."+(b.seasons.length?" "+b.seasons.length+" seasons listed.":""));
+}
+function renderTvFallback(identifier,title){
+  var dc=document.getElementById("dcontent");
+  dc.innerHTML="";
+  var img=document.createElement("img");
+  img.className="bigposter";img.src=IA+"/services/img/"+encodeURIComponent(identifier);img.alt=title+" poster";
+  img.onerror=function(){img.style.display="none";};
+  var h=document.createElement("h2");h.className="sech";h.textContent=title;
+  dc.appendChild(img);dc.appendChild(h);
+  var nm=document.createElement("p");nm.className="meta";nm.textContent="No series guide found for this upload, but you can still play or save it.";
+  dc.appendChild(nm);
+  detailButtons(dc,identifier,title,"Play this upload");
+  say(title+". No series guide found. Play and save are available.");
+}
+function openSeason(b,sn){
+  var lbl=sn.n===0?"Specials":"Season "+sn.n;
+  document.getElementById("eptitle").textContent=b.name+" — "+lbl;
+  var ul=document.getElementById("eplist");
+  ul.innerHTML="";
+  document.getElementById("epmsg").innerHTML='<div class="msg">Loading episodes…</div>';
+  showView("epview");
+  say("Loading "+lbl+" of "+b.name);
+  fetch("https://api.themoviedb.org/3/tv/"+b.id+"/season/"+sn.n+"?api_key="+TMDB_KEY).then(function(r){
+    if(!r.ok)throw new Error("tmdb "+r.status);return r.json();
+  }).then(function(d){
+    document.getElementById("epmsg").innerHTML="";
+    var eps=d.episodes||[];
+    if(!eps.length){document.getElementById("epmsg").innerHTML='<div class="msg">No episodes listed.</div>';return;}
+    eps.forEach(function(e){
+      var li=document.createElement("li");li.className="epitem";
+      if(e.still_path){
+        var im=document.createElement("img");im.src="https://image.tmdb.org/t/p/w185"+e.still_path;
+        im.alt="";im.loading="lazy";im.onerror=function(){im.style.display="none";};li.appendChild(im);
+      }
+      var tx=document.createElement("div");tx.className="et";
+      var t=document.createElement("div");t.innerHTML="<b>E"+e.episode_number+" · "+esc(e.name||"Untitled")+"</b>";
+      tx.appendChild(t);
+      if(e.overview){var ov=document.createElement("div");ov.className="meta";
+        ov.textContent=e.overview.length>200?e.overview.slice(0,200)+"…":e.overview;tx.appendChild(ov);}
+      li.appendChild(tx);
+      var pb=document.createElement("button");pb.className="btn epplay";pb.innerHTML="&#9654;";
+      pb.setAttribute("aria-label","Play episode "+e.episode_number+": "+(e.name||""));
+      pb.addEventListener("click",function(){playEpisode(b.name,e.name||"",pb);});
+      li.appendChild(pb);
+      ul.appendChild(li);
+    });
+    say(lbl+" has "+eps.length+" episodes.");
+  }).catch(function(){
+    document.getElementById("epmsg").innerHTML='<div class="msg">Could not load episodes.</div>';
+    say("Could not load episodes.");
+  });
+}
+function playEpisode(seriesName,epName,btn){
+  var clean=String(epName||"").replace(/"/g,"").trim();
+  if(!clean){say("This episode has no title to search for.");return;}
+  say("Searching the Archive for a playable copy of "+clean);
+  btn.disabled=true;
+  var q='collection:classic_tv AND "'+clean+'"';
+  fetch("https://archive.org/advancedsearch.php?q="+encodeURIComponent(q)+"&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=subject&rows=10&output=json").then(function(r){
+    if(!r.ok)throw new Error("ia "+r.status);return r.json();
+  }).then(function(j){
+    var docs=(j.response&&j.response.docs)||[];
+    var keys=String(seriesName).toLowerCase().split(/[^a-z0-9]+/).filter(function(w){return w.length>=4;});
+    var pick=null;
+    for(var i=0;i<docs.length;i++){
+      var subj=docs[i].subject;
+      var hay=((docs[i].title||"")+" "+(docs[i].identifier||"")+" "+(Array.isArray(subj)?subj.join(" "):(subj||""))).toLowerCase();
+      for(var k=0;k<keys.length;k++){if(hay.indexOf(keys[k])>=0){pick=docs[i];break;}}
+      if(pick)break;
+    }
+    btn.disabled=false;
+    if(pick){
+      say("Found a copy. Loading "+(pick.title||clean)+".");
+      playUpload(pick.identifier,pick.title||clean,btn);
+    }else{
+      say("No playable copy of this episode was found on the Archive.");
+    }
+  }).catch(function(){
+    btn.disabled=false;
+    say("The search failed. Could not look for a playable copy.");
+  });
 }
 function loadNewUploads(){
   var mEl=document.getElementById("newmovies");
