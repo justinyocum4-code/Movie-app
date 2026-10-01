@@ -64,13 +64,19 @@ main{padding:12px;max-width:900px;margin:0 auto}
       <h2 class="sech">New from your feeds</h2>
       <ul class="filelist" id="feedlist"></ul>
       <div id="feedmsg"></div>
+      <h2 class="sech">New movies</h2>
+      <ul class="filelist" id="newmovies"></ul>
+      <div id="newmoviesmsg"></div>
+      <h2 class="sech">New TV shows</h2>
+      <ul class="filelist" id="newtv"></ul>
+      <div id="newtvmsg"></div>
       <h2 class="sech">My Cloud</h2>
       <div class="crumb" id="crumb" aria-label="Folder path"></div>
       <ul class="filelist" id="filelist"></ul>
       <div id="cloudmsg"></div>
       <div class="tip">
-        <h3>RSS feeds</h3>
-        <p class="meta">Add TV and movie RSS feeds on the Premiumize website. Premiumize checks them every few minutes and downloads new items to your cloud. Press Refresh here to see new downloads.</p>
+        <h3>How it works</h3>
+        <p class="meta">New movies and New TV shows list the latest Internet Archive uploads. Tap one to save it straight to your Premiumize cloud — Premiumize downloads it there, then it appears under My Cloud with playback. You can also add RSS feeds on the Premiumize website; working feed downloads appear under New from your feeds.</p>
       </div>
     </section>
   </main>
@@ -87,7 +93,7 @@ main{padding:12px;max-width:900px;margin:0 auto}
 </div>
 <script>
 "use strict";
-/* Movies v1.5 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section. */
+/* Movies v1.6 — Premiumize only. My Cloud browser + video playback + RSS feed downloads section + new IA movies/TV with one-tap save to cloud. */
 var PM="https://www.premiumize.me/api";
 var live=document.getElementById("live");
 function say(m){live.textContent="";setTimeout(function(){live.textContent=m;},50);}
@@ -123,7 +129,7 @@ function pmConnect(silent){
   document.getElementById("pmmsg").innerHTML="";
   pmCall("/account/info").then(function(j){
     crumbs=[{id:null,name:"My files"}];
-    pmShowFiles();listFolder(null);loadFeedSection();
+    pmShowFiles();listFolder(null);loadFeedSection();loadNewUploads();
     say("Premiumize connected");
   }).catch(function(e){
     pmShowLogin();
@@ -244,6 +250,86 @@ function loadFeedSection(){
     fl.innerHTML="";feedMsg("Could not load feed downloads: "+e.message);
   });
 }
+/* ---------- Internet Archive new uploads + one-tap save to cloud ---------- */
+var IA="https://archive.org";
+function iaQueryURL(collection){
+  return IA+"/advancedsearch.php?q="+encodeURIComponent("collection:("+collection+") AND mediatype:movies")+
+    "&fl[]=identifier&fl[]=title&rows=20&sort[]=addeddate+desc&output=json";
+}
+function pickVideoFile(files){
+  var vids=(files||[]).filter(function(f){return VIDRE.test(f.name||"");});
+  if(!vids.length)return null;
+  var small=vids.filter(function(f){return /_512kb\.mp4$/i.test(f.name||"");});
+  var pool=small.length?small:vids;
+  pool.sort(function(a,b){return (Number(a.size)||0)-(Number(b.size)||0);});
+  return pool[0];
+}
+function saveToCloud(identifier,title,btn){
+  btn.disabled=true;
+  var orig=btn.innerHTML;
+  btn.innerHTML="Saving...";
+  say("Saving "+title+" to your cloud");
+  fetch(IA+"/metadata/"+encodeURIComponent(identifier)).then(function(r){
+    if(!r.ok)throw new Error("http "+r.status);return r.json();
+  }).then(function(meta){
+    var f=pickVideoFile(meta.files);
+    if(!f)throw new Error("no playable file found");
+    var url=IA+"/download/"+encodeURIComponent(identifier)+"/"+encodeURIComponent(f.name);
+    return pmCall("/transfer/create",{src:url});
+  }).then(function(){
+    btn.innerHTML="&#10003; Saved to cloud";
+    say(title+" is downloading to your cloud. It will appear under My Cloud.");
+  }).catch(function(e){
+    btn.disabled=false;btn.innerHTML=orig;
+    say("Could not save "+title+": "+e.message);
+  });
+}
+function renderUploadList(ulId,msgId,docs,emptyText){
+  var ul=document.getElementById(ulId);
+  ul.innerHTML="";
+  var msgEl=document.getElementById(msgId);
+  msgEl.innerHTML="";
+  if(!docs.length){
+    msgEl.innerHTML='<div class="msg">'+esc(emptyText)+"</div>";
+    return;
+  }
+  docs.forEach(function(d){
+    var title=d.title||d.identifier||"Untitled";
+    var li=document.createElement("li");
+    var b=document.createElement("button");
+    b.innerHTML="&#127916; "+esc(title);
+    b.setAttribute("aria-label","Save "+title+" to my cloud");
+    b.addEventListener("click",function(){saveToCloud(d.identifier,title,b);});
+    li.appendChild(b);ul.appendChild(li);
+  });
+  say(docs.length+" items listed");
+}
+function loadNewUploads(){
+  var mEl=document.getElementById("newmovies");
+  var tEl=document.getElementById("newtv");
+  mEl.innerHTML='<li class="empty">Loading new movies...</li>';
+  tEl.innerHTML='<li class="empty">Loading new TV shows...</li>';
+  document.getElementById("newmoviesmsg").innerHTML="";
+  document.getElementById("newtvmsg").innerHTML="";
+  fetch(iaQueryURL("feature_films")).then(function(r){
+    if(!r.ok)throw new Error("http "+r.status);return r.json();
+  }).then(function(j){
+    renderUploadList("newmovies","newmoviesmsg",(j.response&&j.response.docs)||[],"No new movies found.");
+  }).catch(function(e){
+    document.getElementById("newmovies").innerHTML="";
+    document.getElementById("newmoviesmsg").innerHTML='<div class="msg">Could not load new movies: '+esc(e.message)+"</div>";
+    say("Could not load new movies");
+  });
+  fetch(iaQueryURL("classic_tv")).then(function(r){
+    if(!r.ok)throw new Error("http "+r.status);return r.json();
+  }).then(function(j){
+    renderUploadList("newtv","newtvmsg",(j.response&&j.response.docs)||[],"No new TV shows found.");
+  }).catch(function(e){
+    document.getElementById("newtv").innerHTML="";
+    document.getElementById("newtvmsg").innerHTML='<div class="msg">Could not load new TV shows: '+esc(e.message)+"</div>";
+    say("Could not load new TV shows");
+  });
+}
 /* ---------- playback ---------- */
 var vid=document.getElementById("vid");
 function playVideo(url,title){
@@ -271,7 +357,7 @@ document.getElementById("pmdisconnect").addEventListener("click",function(){
 document.getElementById("pmrefresh").addEventListener("click",function(){
   say("Refreshing");
   listFolder(crumbs[crumbs.length-1].id);
-  loadFeedSection();
+  loadFeedSection();loadNewUploads();
 });
 document.getElementById("pclose").addEventListener("click",function(){history.back();});
 window.addEventListener("popstate",function(){
